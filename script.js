@@ -35,10 +35,10 @@ function maxDrawdown(values) {
   }
   return worst;
 }
-function backtest(prices, shortWindow, longWindow, feePercent) {
+function backtest(prices, shortWindow, longWindow, feePercent, capital = 10000) {
   const short = movingAverage(prices, shortWindow);
   const long = movingAverage(prices, longWindow);
-  const fee = feePercent / 100, capital = 10000;
+  const fee = feePercent / 100;
   // Begin once the long SMA exists. Stay in cash until an actual crossover.
   const start = longWindow - 1;
   let cash = capital, shares = 0, pending = null, trades = 0;
@@ -107,16 +107,19 @@ function run(event) {
   const long = Number(document.getElementById('long-window').value);
   const feeInput = document.getElementById('fee');
   const fee = Number(feeInput.value);
+  const capitalInput = document.getElementById('initial-capital');
+  const capital = Number(capitalInput.value);
   let error = '';
   if (!Number.isInteger(short) || !Number.isInteger(long) || short < 2 || long < 3) error = 'Use whole trading-day windows: at least 2 days for the short window and 3 for the long window.';
   else if (short >= long) error = 'The short window needs to be smaller than the long window. Try 20 and 60 days.';
   else if (long > prices.length - 2) error = `There isn’t enough data for that window. Choose a long window of ${prices.length - 2} days or fewer so a signal can execute.`;
   else if (feeInput.value.trim() === '' || !Number.isFinite(fee) || fee < 0 || fee > 10) error = 'Enter a fee between 0% and 10%, such as 0.10 for a 0.10% fee.';
+  if (!error && (capitalInput.value.trim() === '' || !Number.isFinite(capital) || capital < 0.01 || capital > 1e9 || Math.abs(capital * 100 - Math.round(capital * 100)) > 0.0001)) error = 'Enter an initial capital between $0.01 and $1,000,000,000, with no more than two decimal places.';
   const errorEl = document.getElementById('error');
   errorEl.hidden = !error; errorEl.textContent = error;
   if (error) { document.getElementById('run-status').textContent = 'Update the settings to run again'; return; }
-  const result = backtest(prices, short, long, fee);
-  for (const [id, value] of [['strategy-return', result.strategy.at(-1) / 10000 - 1], ['hold-return', result.hold.at(-1) / 10000 - 1]]) {
+  const result = backtest(prices, short, long, fee, capital);
+  for (const [id, value] of [['strategy-return', result.strategy.at(-1) / capital - 1], ['hold-return', result.hold.at(-1) / capital - 1]]) {
     const el = document.getElementById(id); el.textContent = percent(value); el.classList.toggle('negative', value < 0);
   }
   document.getElementById('drawdown').textContent = `−${(maxDrawdown(result.strategy) * 100).toFixed(2)}%`;
@@ -126,7 +129,10 @@ function run(event) {
   document.getElementById('short-legend').textContent = short;
   document.getElementById('long-legend').textContent = long;
   document.getElementById('period').textContent = `${dateLabel(dates[result.start])} – ${dateLabel(dates.at(-1))} · ${result.strategy.length} trading days`;
-  document.getElementById('explanation').textContent = `Buy when the ${short}-day average crosses above the ${long}-day average; sell when it crosses below. Trades execute at the next day’s close, with a ${fee.toFixed(2)}% fee each time. Invest all available cash, or hold cash between positions. Both portfolios start at $10,000 after the ${long}-day warm-up; buy & hold enters at the next close. Open positions are valued at the final price without an exit fee. Drawdown measures the largest decline from a previous equity peak.`;
+  const capitalLabel = '$' + capital.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  document.getElementById('capital-summary').textContent = capitalLabel;
+  document.getElementById('equity-title').textContent = `Growth of ${capitalLabel}`;
+  document.getElementById('explanation').textContent = `Buy when the ${short}-day average crosses above the ${long}-day average; sell when it crosses below. Trades execute at the next day’s close, with a ${fee.toFixed(2)}% fee each time. Invest all available cash, or hold cash between positions. Both portfolios start at ${capitalLabel} after the ${long}-day warm-up; buy & hold enters at the next close. Open positions are valued at the final price without an exit fee. Drawdown measures the largest decline from a previous equity peak.`;
   document.getElementById('trade-count').textContent = `${result.trades} EXECUTED TRADES`;
   document.getElementById('run-status').textContent = '✓ Backtest up to date';
 }
