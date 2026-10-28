@@ -100,7 +100,7 @@ function drawChart(elementId, series, start, currency) {
     svg += `<text x="${x(i)}" y="${height - 5}" text-anchor="${tick === 0 ? 'start' : tick === 4 ? 'end' : 'middle'}" fill="#9aa190" font-family="monospace" font-size="9">${dateLabel(dates[start + i])}</text>`;
   }
   const chart = document.getElementById(elementId);
-  chart.innerHTML = svg + `<g class="chart-cursor" visibility="hidden"><line y1="${top}" y2="${top + plotH}" stroke="#929b87" stroke-dasharray="3 3"/>${series.map(s => `<circle r="3.5" fill="${s.color}" stroke="white" stroke-width="1.5"/>`).join('')}</g></svg><div class="chart-tooltip" hidden></div>`;
+  chart.innerHTML = svg + `<rect x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="transparent" pointer-events="all"/><g class="chart-cursor" visibility="hidden" pointer-events="none"><line y1="${top}" y2="${top + plotH}" stroke="#929b87" stroke-dasharray="3 3"/>${series.map(s => `<circle r="3.5" fill="${s.color}" stroke="white" stroke-width="1.5"/>`).join('')}</g></svg><div class="chart-tooltip" hidden></div>`;
   chart.tabIndex = 0;
   chart.setAttribute('role', 'group');
   chart.setAttribute('aria-label', `${elementId === 'equity-chart' ? 'Equity comparison' : 'Price and moving averages'}. Hover, touch, or use left and right arrow keys to inspect daily dollar values.`);
@@ -129,14 +129,21 @@ function drawChart(elementId, series, start, currency) {
     tooltip.style.left = `${Math.max(0, Math.min(chart.clientWidth - tooltip.offsetWidth, position + 12))}px`;
   }
   function hidePoint() { tooltip.hidden = true; cursor.setAttribute('visibility', 'hidden'); }
-  chart.onpointermove = chart.onpointerdown = event => {
+  // Mouse events also cover browsers that do not deliver hover pointer events.
+  const inspectPoint = event => {
     const bounds = chart.getBoundingClientRect();
     const px = (event.clientX - bounds.left) / bounds.width * width;
     const py = (event.clientY - bounds.top) / bounds.height * height;
     if (px < left || px > width - right || py < top || py > top + plotH) { hidePoint(); return; }
     showPoint(Math.round((px - left) / plotW * (length - 1)));
   };
-  chart.onpointerleave = chart.onpointercancel = chart.onblur = hidePoint;
+  chart.onpointermove = chart.onpointerdown = inspectPoint;
+  chart.onmousemove = chart.onmousedown = inspectPoint;
+  // Touch coordinates use the same plot-to-day mapping without blocking scrolling.
+  chart.ontouchstart = chart.ontouchmove = event => {
+    if (event.touches.length) inspectPoint(event.touches[0]);
+  };
+  chart.onpointerleave = chart.onmouseleave = chart.onpointercancel = chart.ontouchcancel = chart.onblur = hidePoint;
   chart.onfocus = () => showPoint(selected);
   chart.onkeydown = event => {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
