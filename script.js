@@ -99,7 +99,50 @@ function drawChart(elementId, series, start, currency) {
     const i = Math.round((length - 1) * tick / 4);
     svg += `<text x="${x(i)}" y="${height - 5}" text-anchor="${tick === 0 ? 'start' : tick === 4 ? 'end' : 'middle'}" fill="#9aa190" font-family="monospace" font-size="9">${dateLabel(dates[start + i])}</text>`;
   }
-  document.getElementById(elementId).innerHTML = svg + '</svg>';
+  const chart = document.getElementById(elementId);
+  chart.innerHTML = svg + `<g class="chart-cursor" visibility="hidden"><line y1="${top}" y2="${top + plotH}" stroke="#929b87" stroke-dasharray="3 3"/>${series.map(s => `<circle r="3.5" fill="${s.color}" stroke="white" stroke-width="1.5"/>`).join('')}</g></svg><div class="chart-tooltip" hidden></div>`;
+  chart.tabIndex = 0;
+  chart.setAttribute('role', 'group');
+  chart.setAttribute('aria-label', `${elementId === 'equity-chart' ? 'Equity comparison' : 'Price and moving averages'}. Hover, touch, or use left and right arrow keys to inspect daily dollar values.`);
+  const tooltip = chart.querySelector('.chart-tooltip');
+  const cursor = chart.querySelector('.chart-cursor');
+  const guide = cursor.querySelector('line');
+  const dots = cursor.querySelectorAll('circle');
+  let selected = 0;
+  function showPoint(index) {
+    selected = Math.max(0, Math.min(length - 1, index));
+    const xx = x(selected);
+    cursor.setAttribute('visibility', 'visible');
+    guide.setAttribute('x1', xx); guide.setAttribute('x2', xx);
+    const date = dates[start + selected].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    tooltip.innerHTML = `<strong>${date}</strong>` + series.map((s, i) => {
+      const value = s.values[selected];
+      dots[i].setAttribute('cx', xx);
+      dots[i].setAttribute('cy', value === null ? top : y(value));
+      dots[i].setAttribute('visibility', value === null ? 'hidden' : 'visible');
+      // Display cents without changing the full precision used in the backtest.
+      const amount = value === null ? 'Warming up' : value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+      return `<div><span><i style="background:${s.color}"></i>${s.label}</span><b>${amount}</b></div>`;
+    }).join('');
+    tooltip.hidden = false;
+    const position = xx / width * chart.clientWidth;
+    tooltip.style.left = `${Math.max(0, Math.min(chart.clientWidth - tooltip.offsetWidth, position + 12))}px`;
+  }
+  function hidePoint() { tooltip.hidden = true; cursor.setAttribute('visibility', 'hidden'); }
+  chart.onpointermove = chart.onpointerdown = event => {
+    const bounds = chart.getBoundingClientRect();
+    const px = (event.clientX - bounds.left) / bounds.width * width;
+    const py = (event.clientY - bounds.top) / bounds.height * height;
+    if (px < left || px > width - right || py < top || py > top + plotH) { hidePoint(); return; }
+    showPoint(Math.round((px - left) / plotW * (length - 1)));
+  };
+  chart.onpointerleave = chart.onpointercancel = chart.onblur = hidePoint;
+  chart.onfocus = () => showPoint(selected);
+  chart.onkeydown = event => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault(); showPoint(selected + (event.key === 'ArrowRight' ? 1 : -1));
+    } else if (event.key === 'Escape') hidePoint();
+  };
 }
 function run(event) {
   if (event) event.preventDefault();
@@ -124,8 +167,8 @@ function run(event) {
   }
   document.getElementById('drawdown').textContent = `−${(maxDrawdown(result.strategy) * 100).toFixed(2)}%`;
   document.getElementById('hold-drawdown').textContent = `Buy & hold: −${(maxDrawdown(result.hold) * 100).toFixed(2)}%`;
-  drawChart('equity-chart', [{ values: result.strategy, color: '#d97743', width: 2.2 }, { values: result.hold, color: '#a8b0a0' }], result.start, true);
-  drawChart('price-chart', [{ values: prices, color: '#6b775f', width: 1.3 }, { values: result.short, color: '#d97743' }, { values: result.long, color: '#8a9ca3' }], 0, false);
+  drawChart('equity-chart', [{ label: 'Strategy', values: result.strategy, color: '#d97743', width: 2.2 }, { label: 'Buy & hold', values: result.hold, color: '#a8b0a0' }], result.start, true);
+  drawChart('price-chart', [{ label: 'Price', values: prices, color: '#6b775f', width: 1.3 }, { label: `${short}-day SMA`, values: result.short, color: '#d97743' }, { label: `${long}-day SMA`, values: result.long, color: '#8a9ca3' }], 0, false);
   document.getElementById('short-legend').textContent = short;
   document.getElementById('long-legend').textContent = long;
   document.getElementById('period').textContent = `${dateLabel(dates[result.start])} – ${dateLabel(dates.at(-1))} · ${result.strategy.length} trading days`;
